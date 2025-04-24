@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Produtos Fastcommerce</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-3xl font-bold">Produtos da Loja Relax</h1>
+      <div id="statusAPI" class="text-sm text-green-700 font-medium">✅ API funcionando - próxima atualização em <span id="timer">...</span></div>
+    </div>
+
+    <div class="flex items-center justify-between mb-6">
+      <input id="filtro" type="text" placeholder="Buscar produto..." class="w-1/2 p-3 rounded-lg border shadow-sm" />
+      <select id="filtroCategoria" class="p-3 border rounded ml-4">
+        <option value="">Todas as Categorias</option>
+      </select>
+      <button id="btnExportarPDF" class="ml-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Exportar PDF</button>
+    </div>
+
+    <p class="mb-4 text-sm text-gray-600" id="contador"></p>
+    <div id="produtos" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"></div>
+  </div>
+
+  <!-- Modal Compartilhamento -->
+  <div id="modalCompartilhar" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg max-w-sm w-full text-center">
+      <h2 class="text-xl font-semibold mb-4">Compartilhar Produto</h2>
+      <p id="linkCompartilhamento" class="text-sm text-gray-600 break-all mb-4"></p>
+      <div class="flex justify-center gap-4">
+        <button onclick="copiarLink()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Copiar Link</button>
+        <button onclick="abrirWhatsApp()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">WhatsApp</button>
+      </div>
+      <button onclick="fecharModal()" class="mt-4 text-sm text-gray-500 hover:text-black">Cancelar</button>
+    </div>
+  </div>
+
+  <script>
+    let todosProdutos = [];
+    let produtosFiltrados = [];
+    let produtosRenderizados = 0;
+    const produtosPorLote = 8;
+    let linkAtual = '';
+    let categoriaUnicas = new Set();
+
+    function aplicarFiltros() {
+      const termo = document.getElementById('filtro').value.toLowerCase();
+      const categoria = document.getElementById('filtroCategoria').value;
+      produtosFiltrados = todosProdutos.filter(p => {
+        const nome = (p.NomeProd || '').toLowerCase();
+        const cat = p.Categoria || '';
+        return nome.includes(termo) && (categoria === '' || cat === categoria);
+      });
+      produtosRenderizados = 0;
+      document.getElementById('produtos').innerHTML = '';
+      renderizarMaisProdutos();
+    }
+
+    function iniciarTimer() {
+      let segundos = 300;
+      const timer = document.getElementById('timer');
+      setInterval(() => {
+        const min = Math.floor(segundos / 60);
+        const seg = segundos % 60;
+        timer.textContent = `${min}:${seg.toString().padStart(2, '0')}`;
+        segundos--;
+        if (segundos < 0) segundos = 300;
+      }, 1000);
+    }
+
+    fetch('/produtos')
+      .then(res => res.json())
+      .then(data => {
+        const campos = data.fields;
+        const produtos = data.data;
+
+        todosProdutos = produtos.map(linha => {
+          const p = {};
+          linha.forEach((valor, i) => {
+            p[campos[i]] = valor;
+          });
+          return p;
+        })
+        .filter(p => Number(p.Estoque) > 0)
+        .sort((a, b) => a.NomeProd.localeCompare(b.NomeProd));
+
+        categoriaUnicas.clear();
+        todosProdutos.forEach(p => {
+          if (p.Categoria) categoriaUnicas.add(p.Categoria);
+        });
+
+        const select = document.getElementById('filtroCategoria');
+        select.innerHTML = '<option value="">Todas as Categorias</option>';
+        categoriaUnicas.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          select.appendChild(opt);
+        });
+
+        aplicarFiltros();
+        iniciarTimer();
+      });
+
+    function renderizarMaisProdutos() {
+      const container = document.getElementById('produtos');
+      const fim = produtosRenderizados + produtosPorLote;
+      const lote = produtosFiltrados.slice(produtosRenderizados, fim);
+
+      lote.forEach(prod => {
+        const slug = (prod.NomeProd || '')
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9 ]/g, '')
+          .replace(/\s+/g, '-');
+
+        const linkOriginal = `https://relax-59589.lojavirtualfc.com.br/${slug}`;
+
+        const card = document.createElement('div');
+        card.className = 'bg-white p-4 rounded-lg shadow hover:shadow-lg transition flex flex-col justify-between';
+        card.innerHTML = `
+          <div>
+            <img src="https://mysexyshop.lojavirtualfc.com.br/lojas/00035196/prod/${prod.CodProd}a1.png" 
+                 alt="${prod.NomeProd}" 
+                 class="rounded mb-4 w-full h-40 object-contain bg-white border" 
+                 onerror="this.onerror=null; this.src='sem.jpg';">
+            <h3 class="text-lg font-semibold">${prod.NomeProd || '(sem nome)'}</h3>
+            <p class="text-gray-600 text-sm">Código: ${prod.CodProd}</p>
+            <p class="text-green-700 font-bold mt-2">R$ ${prod.Preco || '0,00'}</p>
+          </div>
+          <button onclick="abrirModal('${linkOriginal}')" class="mt-4 w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Compartilhar Produto</button>
+        `;
+        container.appendChild(card);
+      });
+      produtosRenderizados += lote.length;
+      atualizarContador();
+    }
+
+    function atualizarContador() {
+      document.getElementById('contador').textContent = `Exibindo ${produtosRenderizados} de ${produtosFiltrados.length} produtos encontrados.`;
+    }
+
+    function exportarPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      let y = 10;
+
+      produtosFiltrados.forEach((p, i) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 10;
+        }
+        doc.text(`Produto: ${p.NomeProd || ''}`, 10, y);
+        doc.text(`Código: ${p.CodProd || ''}`, 10, y + 6);
+        doc.text(`Preço: R$ ${p.Preco || '0,00'}`, 10, y + 12);
+        y += 24;
+      });
+
+      doc.save('catalogo.pdf');
+    }
+
+    function abrirModal(link) {
+      linkAtual = link;
+      document.getElementById('linkCompartilhamento').textContent = link;
+      document.getElementById('modalCompartilhar').classList.remove('hidden');
+      document.getElementById('modalCompartilhar').classList.add('flex');
+    }
+
+    function fecharModal() {
+      document.getElementById('modalCompartilhar').classList.add('hidden');
+      document.getElementById('modalCompartilhar').classList.remove('flex');
+    }
+
+    function copiarLink() {
+      navigator.clipboard.writeText(linkAtual).then(() => {
+        alert('Link copiado para a área de transferência!');
+        fecharModal();
+      });
+    }
+
+    function abrirWhatsApp() {
+      const url = `https://wa.me/?text=${encodeURIComponent(linkAtual)}`;
+      window.open(url, '_blank');
+      fecharModal();
+    }
+
+    document.getElementById('filtro').addEventListener('input', aplicarFiltros);
+    document.getElementById('filtroCategoria').addEventListener('change', aplicarFiltros);
+    document.getElementById('btnExportarPDF').addEventListener('click', exportarPDF);
+
+    window.addEventListener('scroll', () => {
+      const scrollY = window.scrollY + window.innerHeight;
+      const limite = document.body.offsetHeight - 100;
+      if (scrollY >= limite && produtosRenderizados < produtosFiltrados.length) {
+        renderizarMaisProdutos();
+      }
+    });
+  </script>
+</body>
+</html>
